@@ -2,7 +2,10 @@
 
 ## Issue: Blank White Screen
 
-The blank white screen is likely caused by missing environment variables in your GitHub Pages deployment.
+The blank white screen is usually caused by:
+
+1. Missing Supabase environment variables in the GitHub Actions build
+2. Missing base path configuration (`/find-me-out/`) for GitHub Pages
 
 ## Solution Steps
 
@@ -11,7 +14,7 @@ The blank white screen is likely caused by missing environment variables in your
 1. Go to your GitHub repository
 2. Click **Settings** → **Secrets and variables** → **Actions**
 3. Click **New repository secret**
-4. Add these two secrets:
+4. Add these secrets:
 
    **Secret 1:**
    - Name: `VITE_SUPABASE_URL`
@@ -20,6 +23,10 @@ The blank white screen is likely caused by missing environment variables in your
    **Secret 2:**
    - Name: `VITE_SUPABASE_ANON_KEY`
    - Value: `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVxeGZnbmxqeWxmY292Z3VuYmdoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM4NzIwNDMsImV4cCI6MjA3OTQ0ODA0M30.AbehYUb53Lt0OJta5irPcR3f42Qat8bLXoTTQu6rUnE`
+
+   **Secret 3 (optional but recommended):**
+   - Name: `VITE_BASE_PATH`
+   - Value: `/find-me-out/`
 
 ### 2. Enable GitHub Pages
 
@@ -50,9 +57,9 @@ git push
 
 If you prefer manual deployment:
 
-1. **Build locally:**
+1. **Build locally (make sure base path is set):**
    ```bash
-   npm run build
+   VITE_BASE_PATH=/find-me-out/ npm run build
    ```
 
 2. **Push dist folder to gh-pages branch:**
