@@ -56,6 +56,7 @@ git push
 ## Alternative: Manual Deployment
 
 If you prefer manual deployment:
+ok
 
 1. **Build locally (make sure base path is set):**
    ```bash
