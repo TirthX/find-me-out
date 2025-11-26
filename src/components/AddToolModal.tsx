@@ -17,6 +17,11 @@ export function AddToolModal({ isOpen, onClose, onSuccess }: AddToolModalProps) 
   const [description, setDescription] = useState('');
   const [url, setUrl] = useState('');
   const [categoryId, setCategoryId] = useState('');
+  
+  // New State for Tags
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState('');
+
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -30,7 +35,6 @@ export function AddToolModal({ isOpen, onClose, onSuccess }: AddToolModalProps) 
       loadCategories();
       resetForm();
     } else {
-      // Reset password verification when modal closes
       setPasswordVerified(false);
     }
   }, [isOpen]);
@@ -55,11 +59,47 @@ export function AddToolModal({ isOpen, onClose, onSuccess }: AddToolModalProps) 
     setName('');
     setDescription('');
     setUrl('');
+    setTags([]); // Reset tags
+    setTagInput('');
     setCategoryId(categories.length > 0 ? categories[0].id : '');
     setError('');
     setSuccess(false);
     setPasswordVerified(false);
   };
+
+  // --- Tag Handlers ---
+
+  const handleAddTag = () => {
+    const trimmedTag = tagInput.trim();
+    if (!trimmedTag) return;
+
+    if (tags.includes(trimmedTag)) {
+      setError('Tag already exists');
+      return;
+    }
+
+    if (tags.length >= 5) {
+      setError('Maximum 5 tags allowed');
+      return;
+    }
+
+    setTags([...tags, trimmedTag]);
+    setTagInput('');
+    setError(''); // Clear error on success
+  };
+
+  const handleRemoveTag = (tagToRemove: string) => {
+    setTags(tags.filter((tag) => tag !== tagToRemove));
+  };
+
+  const handleTagInputKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault(); // Prevent form submission
+      handleAddTag();
+    }
+  };
+
+  // --------------------
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -83,8 +123,13 @@ export function AddToolModal({ isOpen, onClose, onSuccess }: AddToolModalProps) 
       setError('Please select a category');
       return;
     }
+    
+    // Validate Tags (Must have at least one)
+    if (tags.length === 0) {
+      setError('Please add at least one tag');
+      return;
+    }
 
-    // Validate URL format
     try {
       new URL(url);
     } catch {
@@ -92,20 +137,17 @@ export function AddToolModal({ isOpen, onClose, onSuccess }: AddToolModalProps) 
       return;
     }
 
-    // Check if password is verified, if not, show password modal
     if (!passwordVerified) {
       setIsPasswordModalOpen(true);
       return;
     }
 
-    // Proceed with submission
     await submitTool();
   };
 
   const handlePasswordSuccess = () => {
     setPasswordVerified(true);
     setIsPasswordModalOpen(false);
-    // Automatically submit after password verification
     submitTool();
   };
 
@@ -113,7 +155,8 @@ export function AddToolModal({ isOpen, onClose, onSuccess }: AddToolModalProps) 
     setSubmitting(true);
 
     try {
-      const { error: insertError } = await supabase
+      // 1. Insert the tool into the database
+      const { data, error: insertError } = await supabase
         .from('tools')
         .insert([
           {
@@ -121,11 +164,13 @@ export function AddToolModal({ isOpen, onClose, onSuccess }: AddToolModalProps) 
             description: description.trim(),
             url: url.trim(),
             category_id: categoryId,
-            tags: [],
+            tags: tags,
             is_trending: false,
             order: 0,
           },
-        ]);
+        ])
+        .select() // IMPORTANT: Select the inserted row to get the ID
+        .single();
 
       if (insertError) {
         setError(insertError.message || 'Failed to add tool. Please try again.');
@@ -133,17 +178,31 @@ export function AddToolModal({ isOpen, onClose, onSuccess }: AddToolModalProps) 
         return;
       }
 
+      // 2. TRIGGER AI EMBEDDING (Fire and forget)
+      // This calls your new Edge Function to generate the vector in the background
+      if (data) {
+        supabase.functions.invoke('embed-tool', {
+          body: { 
+            id: data.id, 
+            name: data.name, 
+            description: data.description, 
+            tags: data.tags 
+          }
+        }).then(({ error }) => {
+          if (error) console.error("Background embedding failed:", error);
+        });
+      }
+
       setSuccess(true);
       resetForm();
 
-      // Call onSuccess callback after a short delay
       setTimeout(() => {
         if (onSuccess) {
           onSuccess();
         }
         onClose();
       }, 1500);
-    } catch (err) {
+    } catch (err: any) {
       setError('An unexpected error occurred. Please try again.');
       setSubmitting(false);
     }
@@ -155,6 +214,7 @@ export function AddToolModal({ isOpen, onClose, onSuccess }: AddToolModalProps) 
     }
   };
 
+  // ... (useEffect for Escape key remains same)
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isOpen && !submitting) {
@@ -179,6 +239,7 @@ export function AddToolModal({ isOpen, onClose, onSuccess }: AddToolModalProps) 
       onClick={handleBackdropClick}
     >
       <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+        {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center">
@@ -200,11 +261,9 @@ export function AddToolModal({ isOpen, onClose, onSuccess }: AddToolModalProps) 
 
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6">
           <div className="space-y-6">
+            {/* Name Input */}
             <div>
-              <label
-                htmlFor="tool-name"
-                className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
-              >
+              <label htmlFor="tool-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Tool Name <span className="text-red-500">*</span>
               </label>
               <input
@@ -219,11 +278,9 @@ export function AddToolModal({ isOpen, onClose, onSuccess }: AddToolModalProps) 
               />
             </div>
 
+            {/* Description Input */}
             <div>
-              <label
-                htmlFor="tool-description"
-                className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
-              >
+              <label htmlFor="tool-description" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Description <span className="text-red-500">*</span>
               </label>
               <textarea
@@ -238,11 +295,9 @@ export function AddToolModal({ isOpen, onClose, onSuccess }: AddToolModalProps) 
               />
             </div>
 
+            {/* URL Input */}
             <div>
-              <label
-                htmlFor="tool-url"
-                className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
-              >
+              <label htmlFor="tool-url" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Tool URL <span className="text-red-500">*</span>
               </label>
               <input
@@ -257,11 +312,9 @@ export function AddToolModal({ isOpen, onClose, onSuccess }: AddToolModalProps) 
               />
             </div>
 
+            {/* Category Dropdown */}
             <div>
-              <label
-                htmlFor="tool-category"
-                className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
-              >
+              <label htmlFor="tool-category" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Category <span className="text-red-500">*</span>
               </label>
               {loading ? (
@@ -291,6 +344,59 @@ export function AddToolModal({ isOpen, onClose, onSuccess }: AddToolModalProps) 
               )}
             </div>
 
+            {/* NEW: Tags Input Section */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Tags <span className="text-red-500">*</span> <span className="text-xs text-gray-500 font-normal">(Press Enter to add)</span>
+              </label>
+              <div className="space-y-3">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={tagInput}
+                    onChange={(e) => setTagInput(e.target.value)}
+                    onKeyDown={handleTagInputKeyDown}
+                    placeholder="Add a tag (e.g. Free, Open Source)"
+                    className="flex-1 px-4 py-3 rounded-xl bg-gray-100 dark:bg-gray-700 border-2 border-transparent focus:border-green-500 focus:bg-white dark:focus:bg-gray-600 outline-none transition-all text-gray-900 dark:text-white placeholder-gray-500"
+                    disabled={submitting}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddTag}
+                    disabled={!tagInput.trim() || submitting}
+                    className="px-4 py-3 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-xl hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors disabled:opacity-50"
+                  >
+                    Add
+                  </button>
+                </div>
+
+                {/* Tags Display Area */}
+                {tags.length > 0 && (
+                  <div className="flex flex-wrap gap-2 p-3 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-100 dark:border-gray-700">
+                    {tags.map((tag, index) => (
+                      <span
+                        key={index}
+                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-medium bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300"
+                      >
+                        {tag}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveTag(tag)}
+                          className="hover:text-green-900 dark:hover:text-green-100 transition-colors"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {tags.length === 0 && (
+                   <p className="text-xs text-gray-500 italic">No tags added yet. Please add at least one.</p>
+                )}
+              </div>
+            </div>
+
+            {/* Errors and Success Messages */}
             {error && (
               <div className="p-4 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
                 <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
@@ -306,6 +412,7 @@ export function AddToolModal({ isOpen, onClose, onSuccess }: AddToolModalProps) 
             )}
           </div>
 
+          {/* Footer Buttons */}
           <div className="flex gap-3 mt-8 pt-6 border-t border-gray-200 dark:border-gray-700">
             <button
               type="button"
@@ -347,4 +454,3 @@ export function AddToolModal({ isOpen, onClose, onSuccess }: AddToolModalProps) 
     </div>
   );
 }
-
