@@ -29,9 +29,9 @@ serve(async (req) => {
       throw new Error("Server configuration error: Supabase URL or Key is missing");
     }
 
-    // 1. Initialize Gemini
+    // 1. Initialize Gemini (stable model and v1 API)
     const genAI = new GoogleGenerativeAI(geminiKey);
-    const model = genAI.getGenerativeModel({ model: "text-embedding-004" });
+    const model = genAI.getGenerativeModel({ model: "embedding-001" }, { apiVersion: "v1" });
 
     // 2. Generate Embedding (Vector)
     let queryEmbedding;
@@ -48,8 +48,6 @@ serve(async (req) => {
       console.error("Gemini Embedding Error:", e);
       throw new Error(`Gemini Error: ${e.message}`);
     }
-
-
 
     // 3. Search Database
     const supabaseClient = createClient(supabaseUrl, supabaseKey);

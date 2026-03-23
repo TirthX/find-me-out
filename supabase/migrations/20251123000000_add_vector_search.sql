@@ -1,15 +1,15 @@
--- Enable the pgvector extension to work with embeddings
-CREATE EXTENSION IF NOT EXISTS vector;
+-- Enable the pgvector extension (Supabase usually puts this in 'extensions' schema)
+CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA extensions;
 
--- Add embedding column to the tools table
-ALTER TABLE tools ADD COLUMN IF NOT EXISTS embedding vector(768);
+-- Add embedding column to the tools table using explicit schema
+ALTER TABLE tools ADD COLUMN IF NOT EXISTS embedding extensions.vector(768);
 
 -- Drop the function if it already exists with a different return type
-DROP FUNCTION IF EXISTS match_tools(vector(768), float, int);
+DROP FUNCTION IF EXISTS match_tools(extensions.vector(768), float, int);
 
 -- Create a function to search for tools by embedding
 CREATE OR REPLACE FUNCTION match_tools (
-  query_embedding vector(768),
+  query_embedding extensions.vector(768),
   match_threshold float,
   match_count int
 )
