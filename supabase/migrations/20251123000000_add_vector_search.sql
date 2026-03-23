@@ -1,0 +1,48 @@
+-- Enable the pgvector extension to work with embeddings
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- Add embedding column to the tools table
+ALTER TABLE tools ADD COLUMN IF NOT EXISTS embedding vector(768);
+
+-- Drop the function if it already exists with a different return type
+DROP FUNCTION IF EXISTS match_tools(vector(768), float, int);
+
+-- Create a function to search for tools by embedding
+CREATE OR REPLACE FUNCTION match_tools (
+  query_embedding vector(768),
+  match_threshold float,
+  match_count int
+)
+RETURNS TABLE (
+  id uuid,
+  name text,
+  description text,
+  url text,
+  category_id uuid,
+  tags text[],
+  is_trending boolean,
+  "order" int,
+  created_at timestamptz,
+  similarity float
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    tools.id,
+    tools.name,
+    tools.description,
+    tools.url,
+    tools.category_id,
+    tools.tags,
+    tools.is_trending,
+    tools."order",
+    tools.created_at,
+    1 - (tools.embedding <=> query_embedding) AS similarity
+  FROM tools
+  WHERE 1 - (tools.embedding <=> query_embedding) > match_threshold
+  ORDER BY tools.embedding <=> query_embedding
+  LIMIT match_count;
+END;
+$$;

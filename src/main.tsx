@@ -8,8 +8,7 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  console.warn('⚠️ Missing Supabase environment variables');
-  console.warn('Make sure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are set');
+  console.warn('⚠️ Supabase environment variables are not set. Using fallback values.');
 }
 
 createRoot(document.getElementById('root')!).render(

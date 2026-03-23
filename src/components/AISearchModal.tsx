@@ -60,14 +60,35 @@ export function AISearchModal({ isOpen, onClose }: AISearchModalProps) {
           tools: matchedTools,
         },
       ]);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Search error:", error);
+      let errorMessage = "I'm having trouble connecting to my brain right now. Please try again in a moment.";
+
+      // Try to extract specific error message if available
+      if (error instanceof Error) {
+        if (error.name === 'FunctionsHttpError' || error.message.includes("FunctionsHttpError")) {
+          // It's a Supabase Function error, try to get details from the context
+          console.warn("Edge Function Error Details:", error);
+
+          const funcError = error as any;
+          if (funcError.context && typeof funcError.context.json === 'function') {
+            try {
+              const body = await funcError.context.json();
+              console.error("Function Response Body:", body);
+              if (body.details) console.error("Diagnostic Details:", body.details);
+              if (body.error) console.error("Error Message from Server:", body.error);
+            } catch (e) {
+              console.error("Could not parse error response as JSON");
+            }
+          }
+        }
+      }
+
       setMessages((prev) => [
         ...prev,
         {
           type: "assistant",
-          content:
-            "I'm having trouble connecting to my brain right now. Please try again in a moment.",
+          content: errorMessage,
         },
       ]);
     } finally {
@@ -122,16 +143,14 @@ export function AISearchModal({ isOpen, onClose }: AISearchModalProps) {
           {messages.map((message, index) => (
             <div
               key={index}
-              className={`flex ${
-                message.type === "user" ? "justify-end" : "justify-start"
-              }`}
+              className={`flex ${message.type === "user" ? "justify-end" : "justify-start"
+                }`}
             >
               <div
-                className={`max-w-[85%] rounded-2xl p-4 ${
-                  message.type === "user"
-                    ? "bg-gradient-to-br from-blue-500 to-purple-600 text-white"
-                    : "bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white"
-                }`}
+                className={`max-w-[85%] rounded-2xl p-4 ${message.type === "user"
+                  ? "bg-gradient-to-br from-blue-500 to-purple-600 text-white"
+                  : "bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white"
+                  }`}
               >
                 <p className="text-sm leading-relaxed whitespace-pre-line">
                   {message.content}

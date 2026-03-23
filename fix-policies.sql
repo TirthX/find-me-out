@@ -8,16 +8,16 @@ DROP POLICY IF EXISTS "Tools can be deleted by anyone" ON tools;
 -- Verify RLS is enabled
 ALTER TABLE tools ENABLE ROW LEVEL SECURITY;
 
--- Create INSERT policy for anonymous users
+-- Create INSERT policy for all users (anon and authenticated)
 CREATE POLICY "Tools can be inserted by anyone"
   ON tools FOR INSERT
-  TO anon
+  TO anon, authenticated
   WITH CHECK (true);
 
--- Create DELETE policy for anonymous users
+-- Create DELETE policy for all users (anon and authenticated)
 CREATE POLICY "Tools can be deleted by anyone"
   ON tools FOR DELETE
-  TO anon
+  TO anon, authenticated
   USING (true);
 
 -- Verify policies were created
