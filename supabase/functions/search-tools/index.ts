@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { GoogleGenerativeAI } from "https://esm.sh/@google/generative-ai";
+import { GoogleGenerativeAI } from "npm:@google/generative-ai";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -29,9 +29,9 @@ serve(async (req) => {
       throw new Error("Server configuration error: Supabase URL or Key is missing");
     }
 
-    // 1. Initialize Gemini (stable model and v1 API)
+    // 1. Initialize Gemini
     const genAI = new GoogleGenerativeAI(geminiKey);
-    const model = genAI.getGenerativeModel({ model: "embedding-001" }, { apiVersion: "v1" });
+    const model = genAI.getGenerativeModel({ model: "text-embedding-004" });
 
     // 2. Generate Embedding (Vector)
     let queryEmbedding;
