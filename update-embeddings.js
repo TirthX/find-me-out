@@ -1,69 +1,94 @@
 import { createClient } from '@supabase/supabase-js';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { pipeline, env } from '@xenova/transformers';
 import dotenv from 'dotenv';
-
-// Load environment variables from .env file
 dotenv.config();
 
-const supabaseUrl = process.env.VITE_SUPABASE_URL;
-const supabaseKey = process.env.VITE_SUPABASE_SERVICE_ROLE_KEY; // Use SERVICE ROLE key (starts with eyJ...)
-const geminiKey = process.env.GEMINI_API_KEY;
+// Configuration for local transformers
+env.allowRemoteModels = true;
 
-if (!supabaseUrl || !supabaseKey || !geminiKey) {
-  console.error('❌ Missing environment variables. Make sure VITE_SUPABASE_URL, VITE_SUPABASE_SERVICE_ROLE_KEY, and GEMINI_API_KEY are set.');
+/**
+ * Script: update-embeddings.js
+ * 
+ * This script iterates through all tools in your database, generates
+ * new embeddings LOCALLY using 'all-MiniLM-L6-v2' (384 dimensions), 
+ * and saves them back.
+ */
+
+const supabaseUrl = process.env.VITE_SUPABASE_URL;
+const supabaseKey = process.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
+
+if (!supabaseUrl || !supabaseKey) {
+  console.error('❌ Missing required environment variables. (VITE_SUPABASE_URL, VITE_SUPABASE_SERVICE_ROLE_KEY)');
   process.exit(1);
 }
 
 const supabase = createClient(supabaseUrl, supabaseKey);
-const genAI = new GoogleGenerativeAI(geminiKey);
-const model = genAI.getGenerativeModel({ model: "text-embedding-004" });
 
-async function updateEmbeddings() {
-  console.log('🔄 Fetching tools...');
-  
-  // 1. Get all tools
-  const { data: tools, error } = await supabase.from('tools').select('*');
-  
-  if (error) {
-    console.error('Error fetching tools:', error);
+// Singleton pattern for the extractor
+let extractor = null;
+
+async function generateEmbedding(text) {
+  try {
+    if (!extractor) {
+      console.log('🔄 Loading local model: Xenova/all-MiniLM-L6-v2...');
+      extractor = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+      console.log('✅ Model loaded.');
+    }
+
+    const output = await extractor(text, { pooling: 'mean', normalize: true });
+    return Array.from(output.data);
+  } catch (error) {
+    throw new Error(`Local Embedding Error: ${error.message}`);
+  }
+}
+
+async function run() {
+  console.log('🚀 Starting LOCAL re-indexing process...');
+
+  // 1. Fetch all tools
+  const { data: tools, error: fetchError } = await supabase
+    .from('tools')
+    .select('id, name, description, tags');
+
+  if (fetchError) {
+    console.error('❌ Error fetching tools:', fetchError.message);
     return;
   }
 
-  console.log(`Found ${tools.length} tools. Generating embeddings...`);
+  console.log(`📦 Found ${tools.length} tools to re-index.`);
 
-  let successCount = 0;
+  let success = 0;
+  let failed = 0;
 
   for (const tool of tools) {
     try {
-      // 2. Create the text to embed (Name + Description + Tags)
-      const textToEmbed = `${tool.name}: ${tool.description}. Tags: ${tool.tags ? tool.tags.join(', ') : ''}`;
+      const textToEmbed = `${tool.name}: ${tool.description || ''}. Tags: ${tool.tags?.join(', ') || ''}`;
+      
+      process.stdout.write(`[${success + failed + 1}/${tools.length}] Indexing: ${tool.name}... `);
+      
+      const embedding = await generateEmbedding(textToEmbed);
 
-      // 3. Generate Vector using Gemini
-      const result = await model.embedContent(textToEmbed);
-      const embedding = result.embedding.values;
-
-      // 4. Update the row in Supabase
       const { error: updateError } = await supabase
         .from('tools')
-        .update({ embedding: embedding })
+        .update({ embedding })
         .eq('id', tool.id);
 
-      if (updateError) {
-        console.error(`❌ Failed to update ${tool.name}:`, updateError.message);
-      } else {
-        console.log(`✅ Updated: ${tool.name}`);
-        successCount++;
-      }
+      if (updateError) throw updateError;
 
-      // Add a tiny delay to avoid hitting Gemini rate limits
-      await new Promise(resolve => setTimeout(resolve, 500));
-
+      success++;
+      console.log('✅');
+      
     } catch (err) {
-      console.error(`❌ Error processing ${tool.name}:`, err.message);
+      console.log('❌');
+      console.error(`   Error: ${err.message}`);
+      failed++;
     }
   }
 
-  console.log(`\n🎉 Finished! Successfully updated ${successCount} of ${tools.length} tools.`);
+  console.log('\n--- Final Result ---');
+  console.log(`✅ Successfully updated: ${success}`);
+  console.log(`❌ Failed: ${failed}`);
+  console.log('--------------------');
 }
 
-updateEmbeddings();
+run();

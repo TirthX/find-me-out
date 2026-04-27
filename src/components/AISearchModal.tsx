@@ -1,3 +1,4 @@
+import { pipeline } from "@xenova/transformers";
 import { useState, useEffect, useRef } from "react";
 import { X, Send, Sparkles, Loader } from "lucide-react";
 import { supabase } from "../lib/supabase"; // Ensure this client is set up correctly
@@ -16,6 +17,9 @@ interface Message {
   tools?: Tool[];
 }
 
+// Global variable to keep the model in memory
+let extractor: any = null;
+
 export function AISearchModal({ isOpen, onClose }: AISearchModalProps) {
   const [query, setQuery] = useState("");
   const [messages, setMessages] = useState<Message[]>([
@@ -32,6 +36,15 @@ export function AISearchModal({ isOpen, onClose }: AISearchModalProps) {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  const getEmbedding = async (text: string) => {
+    if (!extractor) {
+      console.log("Loading embedding model...");
+      extractor = await pipeline("feature-extraction", "Xenova/all-MiniLM-L6-v2");
+    }
+    const output = await extractor(text, { pooling: "mean", normalize: true });
+    return Array.from(output.data);
+  };
+
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!query.trim() || isSearching) return;
@@ -42,46 +55,84 @@ export function AISearchModal({ isOpen, onClose }: AISearchModalProps) {
     setIsSearching(true);
 
     try {
-      // Call the Edge Function "search-tools"
-      const { data, error } = await supabase.functions.invoke("search-tools", {
-        body: { query: userMessage },
+      // 1. Generate Embedding locally in the browser
+      console.log("Generating local embedding...");
+      const embedding = await getEmbedding(userMessage);
+
+      // 2. Call the Edge Function "search-tools" with full URL and manual fetch
+      // This avoids relative URL issues and ensures correct JSON handling
+      const supabaseUrl =
+        import.meta.env.VITE_SUPABASE_URL ||
+        "https://eqxfgnljylfcovgunbgh.supabase.co";
+
+      const supabaseAnonKey =
+        import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+      if (!supabaseAnonKey) {
+        throw new Error("Missing Supabase ANON KEY");
+      }
+
+      const functionUrl = `${supabaseUrl}/functions/v1/search-tools`;
+
+      console.log("[Search] FINAL URL:", functionUrl);
+
+      // 🚨 SAFETY CHECK (prevents silent failure)
+      if (!functionUrl.startsWith("https://")) {
+        throw new Error("Invalid Supabase URL. Check your env variables.");
+      }
+
+      const response = await fetch(functionUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${supabaseAnonKey}`,
+        },
+        body: JSON.stringify({ embedding }),
       });
 
-      if (error) throw error;
+      // Read raw response
+      const rawText = await response.text();
+      console.log("[Search] RAW RESPONSE:", rawText);
+
+      // ❌ Detect HTML response immediately
+      if (rawText.trim().startsWith("<!DOCTYPE") || rawText.trim().startsWith("<html")) {
+        throw new Error(
+          "Received HTML instead of JSON → request is hitting wrong server (NOT Supabase)"
+        );
+      }
+
+      // ❌ Handle HTTP errors
+      if (!response.ok) {
+        try {
+          const err = JSON.parse(rawText);
+          throw new Error(err.error || "Server error");
+        } catch {
+          throw new Error(`Server error: ${response.status}`);
+        }
+      }
+
+      // ✅ Parse JSON safely
+      const data = JSON.parse(rawText);
 
       const matchedTools = data.tools || [];
-      const response = generateResponse(matchedTools);
+      const botResponse = generateResponse(matchedTools);
+
 
       setMessages((prev) => [
         ...prev,
         {
           type: "assistant",
-          content: response,
+          content: botResponse,
           tools: matchedTools,
         },
       ]);
     } catch (error: any) {
       console.error("Search error:", error);
-      let errorMessage = "I'm having trouble connecting to my brain right now. Please try again in a moment.";
 
-      // Try to extract specific error message if available
-      if (error instanceof Error) {
-        if (error.name === 'FunctionsHttpError' || error.message.includes("FunctionsHttpError")) {
-          // It's a Supabase Function error, try to get details from the context
-          console.warn("Edge Function Error Details:", error);
+      let errorMessage = "I'm having trouble connecting to my brain right now.";
 
-          const funcError = error as any;
-          if (funcError.context && typeof funcError.context.json === 'function') {
-            try {
-              const body = await funcError.context.json();
-              console.error("Function Response Body:", body);
-              if (body.details) console.error("Diagnostic Details:", body.details);
-              if (body.error) console.error("Error Message from Server:", body.error);
-            } catch (e) {
-              console.error("Could not parse error response as JSON");
-            }
-          }
-        }
+      if (error.message) {
+        errorMessage = `Error: ${error.message}`;
       }
 
       setMessages((prev) => [
@@ -95,6 +146,7 @@ export function AISearchModal({ isOpen, onClose }: AISearchModalProps) {
       setIsSearching(false);
     }
   };
+
 
   const generateResponse = (tools: Tool[]): string => {
     if (tools.length === 0) {

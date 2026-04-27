@@ -2,14 +2,15 @@
 CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA extensions;
 
 -- Add embedding column to the tools table using explicit schema
-ALTER TABLE tools ADD COLUMN IF NOT EXISTS embedding extensions.vector(768);
+ALTER TABLE tools ADD COLUMN IF NOT EXISTS embedding extensions.vector(384);
 
 -- Drop the function if it already exists with a different return type
-DROP FUNCTION IF EXISTS match_tools(extensions.vector(768), float, int);
+DROP FUNCTION IF EXISTS match_tools(extensions.vector(384), float, int);
 
 -- Create a function to search for tools by embedding
 CREATE OR REPLACE FUNCTION match_tools (
-  query_embedding extensions.vector(768),
+  query_embedding extensions.vector(384),
+
   match_threshold float,
   match_count int
 )
